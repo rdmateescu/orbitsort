@@ -74,7 +74,17 @@
  * -------
  * The logging functions are placed before the sorting functions. They provide function-entry,
  * function-exit, error, and normal-message logging through one display function. The display
- * function is the single place where output behavior can be changed.
+ * function is the single place where output behavior can be changed. Messages are filtered by
+ * severity so normal execution does not produce excessive output:
+ *
+ * 1. ERROR:     Error messages only. Errors remain visible at every logging level.
+ * 2. IMPORTANT: Errors and important operation messages. This is the default level.
+ * 3. DEBUG:     Errors, important messages, and selected function-boundary messages.
+ * 4. TRACE:     Every configured function-boundary message, including low-level comparisons.
+ *
+ * The diagnostic level can be changed with set_log_level. For example, setting the level to
+ * ORBITSORT_LOG_LEVEL_TRACE enables detailed diagnostics when investigating a failure, while
+ * ORBITSORT_LOG_LEVEL_IMPORTANT keeps normal demonstration output concise.
  *
  * =================================================================================================
  */
