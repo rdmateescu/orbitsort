@@ -93,6 +93,7 @@
  * -4: The array is too large for the OpenMP loop counter.
  * -5: A log type is invalid.
  * -6: A reported error code is not negative.
+ * -7: A log level is invalid.
  */
 #define ORBITSORT_SUCCESS 0
 #define ORBITSORT_ERROR_NULL_POINTER -1
@@ -101,6 +102,18 @@
 #define ORBITSORT_ERROR_TOO_MANY_ELEMENTS -4
 #define ORBITSORT_ERROR_INVALID_LOG_TYPE -5
 #define ORBITSORT_ERROR_INVALID_ERROR_CODE -6
+#define ORBITSORT_ERROR_INVALID_LOG_LEVEL -7
+
+typedef enum
+{
+    ORBITSORT_LOG_LEVEL_ERROR = 0,
+    ORBITSORT_LOG_LEVEL_IMPORTANT = 1,
+    ORBITSORT_LOG_LEVEL_DEBUG = 2,
+    ORBITSORT_LOG_LEVEL_TRACE = 3
+} orbitsort_log_level;
+
+static orbitsort_log_level current_log_level =
+    ORBITSORT_LOG_LEVEL_IMPORTANT;
 
 typedef enum
 {
@@ -111,9 +124,35 @@ typedef enum
 } orbitsort_log_type;
 
 /**
+ * FUNCTION: set_log_level
+ *
+ * PARAMETERS:
+ * - log_level: Maximum logging level that will be displayed.
+ *
+ * RETURNS:
+ *  0: The logging level was changed successfully.
+ * -7: log_level was invalid.
+ */
+static int set_log_level(orbitsort_log_level log_level)
+{
+    int error_code = ORBITSORT_SUCCESS;
+
+    if (log_level < ORBITSORT_LOG_LEVEL_ERROR ||
+        log_level > ORBITSORT_LOG_LEVEL_TRACE) {
+        error_code = ORBITSORT_ERROR_INVALID_LOG_LEVEL;
+    }
+    else {
+        current_log_level = log_level;
+    }
+
+    return error_code;
+}
+
+/**
  * FUNCTION: display_log_message
  *
  * PARAMETERS:
+ * - log_level: Severity level assigned to the message.
  * - log_type: Type of message to display.
  * - function_name: Name of the function associated with the message.
  * - message: Text to display.
@@ -122,8 +161,10 @@ typedef enum
  *  0: The message was displayed successfully.
  * -1: function_name or message was NULL.
  * -5: log_type was invalid.
+ * -7: log_level was invalid.
  */
 static int display_log_message(
+    orbitsort_log_level log_level,
     orbitsort_log_type log_type,
     const char* function_name,
     const char* message)
@@ -133,11 +174,15 @@ static int display_log_message(
     if (function_name == NULL || message == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
     }
+    else if (log_level < ORBITSORT_LOG_LEVEL_ERROR ||
+        log_level > ORBITSORT_LOG_LEVEL_TRACE) {
+        error_code = ORBITSORT_ERROR_INVALID_LOG_LEVEL;
+    }
     else if (log_type < ORBITSORT_LOG_FUNCTION_ENTER ||
         log_type > ORBITSORT_LOG_MESSAGE) {
         error_code = ORBITSORT_ERROR_INVALID_LOG_TYPE;
     }
-    else {
+    else if (log_level <= current_log_level) {
 #ifdef _OPENMP
 #pragma omp critical(orbitsort_logging)
         {
@@ -173,20 +218,28 @@ static int display_log_message(
  *
  * PARAMETERS:
  * - function_name: Name of the function being entered.
+ * - log_level: Logging level assigned to the entry message.
  *
  * RETURNS:
  *  0: The entry message was displayed successfully.
  * -1: function_name was NULL.
  */
-static int log_function_enter(const char* function_name)
+static int log_function_enter(
+    orbitsort_log_level log_level,
+    const char* function_name)
 {
     int error_code = ORBITSORT_SUCCESS;
 
     if (function_name == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
     }
+    else if (log_level < ORBITSORT_LOG_LEVEL_ERROR ||
+        log_level > ORBITSORT_LOG_LEVEL_TRACE) {
+        error_code = ORBITSORT_ERROR_INVALID_LOG_LEVEL;
+    }
     else {
         error_code = display_log_message(
+            log_level,
             ORBITSORT_LOG_FUNCTION_ENTER,
             function_name,
             "Function entered.");
@@ -200,20 +253,28 @@ static int log_function_enter(const char* function_name)
  *
  * PARAMETERS:
  * - function_name: Name of the function being exited.
+ * - log_level: Logging level assigned to the exit message.
  *
  * RETURNS:
  *  0: The exit message was displayed successfully.
  * -1: function_name was NULL.
  */
-static int log_function_exit(const char* function_name)
+static int log_function_exit(
+    orbitsort_log_level log_level,
+    const char* function_name)
 {
     int error_code = ORBITSORT_SUCCESS;
 
     if (function_name == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
     }
+    else if (log_level < ORBITSORT_LOG_LEVEL_ERROR ||
+        log_level > ORBITSORT_LOG_LEVEL_TRACE) {
+        error_code = ORBITSORT_ERROR_INVALID_LOG_LEVEL;
+    }
     else {
         error_code = display_log_message(
+            log_level,
             ORBITSORT_LOG_FUNCTION_EXIT,
             function_name,
             "Function exited.");
@@ -250,6 +311,7 @@ static int log_error(
     }
     else {
         logging_error_code = display_log_message(
+            ORBITSORT_LOG_LEVEL_ERROR,
             ORBITSORT_LOG_ERROR,
             function_name,
             message);
@@ -280,6 +342,7 @@ static int log_message(
     }
     else {
         error_code = display_log_message(
+            ORBITSORT_LOG_LEVEL_IMPORTANT,
             ORBITSORT_LOG_MESSAGE,
             function_name,
             message);
@@ -309,7 +372,7 @@ static int compare_int(
 {
     int error_code = ORBITSORT_SUCCESS;
 
-    (void)log_function_enter("compare_int");
+    (void)log_function_enter(ORBITSORT_LOG_LEVEL_TRACE, "compare_int");
 
     if (comparison_result == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
@@ -331,7 +394,7 @@ static int compare_int(
             "The comparison result pointer was NULL.");
     }
 
-    (void)log_function_exit("compare_int");
+    (void)log_function_exit(ORBITSORT_LOG_LEVEL_TRACE, "compare_int");
 
     return error_code;
 }
@@ -356,7 +419,7 @@ static int min_int(
     int comparison_result = 0;
     int error_code = ORBITSORT_SUCCESS;
 
-    (void)log_function_enter("min_int");
+    (void)log_function_enter(ORBITSORT_LOG_LEVEL_TRACE, "min_int");
 
     if (minimum_value == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
@@ -381,7 +444,7 @@ static int min_int(
             "The minimum-value output pointer was NULL.");
     }
 
-    (void)log_function_exit("min_int");
+    (void)log_function_exit(ORBITSORT_LOG_LEVEL_TRACE, "min_int");
 
     return error_code;
 }
@@ -406,7 +469,7 @@ static int max_int(
     int comparison_result = 0;
     int error_code = ORBITSORT_SUCCESS;
 
-    (void)log_function_enter("max_int");
+    (void)log_function_enter(ORBITSORT_LOG_LEVEL_TRACE, "max_int");
 
     if (maximum_value == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
@@ -431,7 +494,7 @@ static int max_int(
             "The maximum-value output pointer was NULL.");
     }
 
-    (void)log_function_exit("max_int");
+    (void)log_function_exit(ORBITSORT_LOG_LEVEL_TRACE, "max_int");
 
     return error_code;
 }
@@ -462,7 +525,7 @@ static int compare_exchange(
 {
     int error_code = ORBITSORT_SUCCESS;
 
-    (void)log_function_enter("compare_exchange");
+    (void)log_function_enter(ORBITSORT_LOG_LEVEL_DEBUG, "compare_exchange");
 
     if (array_to_compare == NULL || was_exchanged == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
@@ -523,7 +586,7 @@ static int compare_exchange(
             "The pair could not be compared or exchanged.");
     }
 
-    (void)log_function_exit("compare_exchange");
+    (void)log_function_exit(ORBITSORT_LOG_LEVEL_DEBUG, "compare_exchange");
 
     return error_code;
 }
@@ -550,7 +613,7 @@ static int run_until_sorted(
 {
     int error_code = ORBITSORT_SUCCESS;
 
-    (void)log_function_enter("run_until_sorted");
+    (void)log_function_enter(ORBITSORT_LOG_LEVEL_IMPORTANT, "run_until_sorted");
 
     if (array_to_sort == NULL || total_phases_executed == NULL) {
         error_code = ORBITSORT_ERROR_NULL_POINTER;
@@ -742,7 +805,7 @@ static int run_until_sorted(
             "Sorting completed successfully.");
     }
 
-    (void)log_function_exit("run_until_sorted");
+    (void)log_function_exit(ORBITSORT_LOG_LEVEL_IMPORTANT, "run_until_sorted");
 
     return error_code;
 }
