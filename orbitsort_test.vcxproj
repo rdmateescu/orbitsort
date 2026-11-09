@@ -71,7 +71,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="orbitsort_null_test.c" />
+    <ClCompile Include="orbitsort_null_test.c">
+      <OpenMPSupport Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</OpenMPSupport>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="orbitsort.c" />
