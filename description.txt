@@ -1,0 +1,471 @@
+# OrbitSort with Dynamic Blocks
+## Revised Algorithm, Version 4
+
+### 1. Goal and basic concept
+
+Dynamic Blocks extends the original OrbitSort algorithm.
+
+Instead of sorting individual values throughout the entire execution, the algorithm can combine values into blocks. Each block becomes one active element in the OrbitSort sequence.
+
+The original OrbitSort principles remain:
+- Circular pair comparisons.
+- Phase-based execution.
+- Rotation between phases.
+- Sequential and OpenMP implementations.
+- Parity-dependent stopping conditions.
+
+The number of active elements decreases as blocks are merged.
+
+### 2. Terminology and data structures
+
+**2.1. Value**
+
+An original integer from the input array.
+
+**2.2. Block**
+
+A block contains one or more original integer values, maintained in ascending order.
+
+Examples:
+
+- `[5]` is a block containing one value.
+- `[3, 5]` is a block containing two values.
+- `[1, 2, 3, 4]` is a block containing four values.
+
+A block is treated as one active element by OrbitSort.
+
+**2.3. vectorlist**
+
+A doubly linked list containing the active blocks.
+
+Each node represents one block and provides access to its blocklist.
+
+The vectorlist determines the current sequence of active blocks.
+
+**2.4. blocklist**
+
+A doubly linked list containing the integer values belonging to one block.
+
+Each integer node has:
+- An integer value.
+- A pointer to the next node.
+- A pointer to the previous node.
+
+Each block maintains:
+- A pointer to its first value.
+- A pointer to its last value.
+- Its number of values.
+
+Values are maintained in ascending order, with duplicates preserved.
+
+**2.5. pairvector**
+
+A dynamically allocated array containing the pairs assigned to threads during a phase, including the orphan entry when the active element count is odd.
+
+Each pairvector entry contains:
+- A pointer to the first block.
+- A pointer to the second block.
+- A marker identifying whether the entry contains the first element of the vectorlist.
+
+The marker has three possible values:
+
+- `1`: the first pointer represents the first element of the vectorlist.
+- `2`: the second pointer represents the first element of the vectorlist.
+- `-1`: neither pointer represents the first element of the vectorlist.
+
+The pairvector also maintains a general pointer to the entry containing the first element of the vectorlist.
+
+For an odd number of active blocks, the orphan has its own pairvector entry, with one valid block pointer and one `NULL` pointer.
+
+The orphan retains its natural position in the sequence.
+
+The pairvector maintains:
+- `size`: number of currently used entries.
+- `capacity`: allocated number of entries.
+
+**2.6. Shared pointers**
+
+Two pointers have different responsibilities:
+
+- `first_element`: identifies the first block in the vectorlist.
+- `current_element`: identifies the current starting reference for the next OrbitSort phase.
+
+Both are accessible to the sorting function and worker threads.
+
+Their representation in the C code remains an implementation decision.
+
+### 3. Initialization
+
+Initially, every input value becomes a separate block containing exactly one integer.
+
+Example:
+
+`[8, 3, 12, 5]`
+
+Initial vectorlist:
+
+`[8] <-> [3] <-> [12] <-> [5]`
+
+Each blocklist contains exactly one integer node.
+
+The initial active element count is equal to the number of input values.
+
+The initial vectorlist and its first and last elements are established.
+
+### 4. minDiff parameter
+
+`minDiff` is supplied by the user as an input parameter.
+
+It determines which blocks can be combined.
+
+The algorithm does not calculate `minDiff` internally.
+
+Changing `minDiff` can change the merging behaviour, execution path and performance.
+
+### 5. Comparison rules
+
+**5.1. Two singleton blocks**
+
+When two singleton blocks are compared:
+
+1. Apply the original OrbitSort compare-exchange rule.
+2. Calculate the absolute difference between their values.
+3. If the difference equals `minDiff`, merge them.
+4. Otherwise, leave them as separate blocks.
+
+The merge occurs whether or not compare-exchange exchanged the values.
+
+**5.2. Blocks with overlapping value ranges**
+
+When two blocks have overlapping value ranges, combine them into one block.
+
+All values must be placed in ascending order.
+
+Duplicates must be preserved.
+
+Example:
+
+Block A: `[1, 3, 5]`
+
+Block B: `[2, 3, 6]`
+
+Result: `[1, 2, 3, 3, 5, 6]`
+
+**5.3. Disjoint blocks in the wrong order**
+
+When two blocks have disjoint ranges but are in the wrong order, exchange their positions using the original OrbitSort compare-exchange rule.
+
+The blocks remain separate.
+
+**5.4. Disjoint blocks in the correct order**
+
+When two blocks are already in the correct order, calculate the difference between the last value of the first block and the first value of the second block.
+
+If this difference equals `minDiff`, merge the blocks.
+
+Otherwise, leave them separate.
+
+### 6. Merge strategy
+
+**6.1. Destination and source**
+
+When two blocks must merge:
+
+- The larger block becomes the destination.
+- The smaller block becomes the source.
+- The source values are inserted into the destination.
+- The source block is consumed after the merge.
+
+If both blocks contain the same number of values, the first block in the OrbitSort pair becomes the destination.
+
+This selection is based on the number of values contained in each block, not the number of active elements.
+
+**6.2. Insertion into the destination**
+
+The destination blocklist maintains its values in ascending order.
+
+Values from the source blocklist are inserted into their correct positions.
+
+Existing values and duplicates must be preserved.
+
+Insertion is performed by relinking integer nodes rather than copying values into a new array.
+
+**6.3. Insertion search**
+
+The first source value starts its search from the beginning of the destination blocklist.
+
+A moving insertion cursor is maintained.
+
+Because source values are processed in ascending order, each subsequent insertion starts from the previous insertion position and searches forward.
+
+When equal values exist, the transferred node is inserted after the existing equal values.
+
+The previously proposed middle-reference search strategy is not used.
+
+**6.4. Source blocklist consumption**
+
+The source blocklist is consumed from its beginning.
+
+For each transferred node, the source's first pointer advances to the next available node.
+
+The source blocklist therefore always identifies the first value still waiting to be transferred.
+
+When all values have been transferred, the source blocklist is empty.
+
+**6.5. Block concatenation**
+
+When two disjoint blocks are already in the correct order, their blocklists can be connected directly by changing their boundary links.
+
+This avoids searching for individual insertion positions.
+
+**6.6. Consumed block**
+
+After a successful merge:
+
+- The destination block survives.
+- The source block is consumed.
+- The source block's pointer in the corresponding pairvector entry becomes `NULL`.
+- The worker that consumes the block is responsible for updating `current_element` if necessary.
+
+The consumed outer block node is excluded during vectorlist reconstruction.
+
+Transferred integer nodes remain owned by the destination blocklist.
+
+### 7. Active element count and data integrity
+
+Initially, the active element count is equal to the number of original input values.
+
+Every merge combines exactly two active elements into one.
+
+Therefore:
+
+`E = n - M`
+
+Where:
+- `E` is the current number of active elements.
+- `n` is the original number of input values.
+- `M` is the total number of completed merges.
+
+The active element count is updated according to the number of successful merges in each phase.
+
+The orphan entry must not be counted as a merge merely because its second pointer is `NULL`.
+
+The total number of original integer values must always remain equal to `n`.
+
+No merge, swap, deletion or reconstruction operation may lose, duplicate or alter an original value.
+
+### 8. Phase execution
+
+The original OrbitSort phase and circular pairing schedule are retained.
+
+Each current block is treated as one active element.
+
+At the beginning of a phase:
+
+1. Determine the current active element count.
+2. Generate the pair assignments using the original OrbitSort phase schedule.
+3. Build the pairvector, starting with the first pair established by that phase.
+4. Preserve the sequence order of the pairs and the orphan, if present.
+5. Assign pairvector entries to workers.
+
+The current-element pointer provides the starting reference for pair construction.
+
+Each worker operates exclusively on its own pairvector entry.
+
+Within its assigned pair, a worker performs the required comparison and operation:
+- Leave the blocks unchanged.
+- Swap the block pointers.
+- Merge the blocks and set the consumed pointer to `NULL`.
+
+Workers do not modify the outer vectorlist links.
+
+Pairs are disjoint within a phase, so workers do not operate on the same blocks.
+
+All workers must finish before reconstruction begins.
+
+### 9. Vectorlist reconstruction
+
+After all workers finish, the vectorlist is reconstructed outside the parallel phase.
+
+The pairvector already contains the results of the workers' operations.
+
+Reconstruction proceeds as follows:
+
+1. Start with the pairvector entry identified by its general first-element pointer.
+2. Use its `1` or `2` marker to identify the pointer representing the first sequence element.
+3. Process the pairvector entries in their established sequence order.
+4. Take surviving block pointers in their current order within each entry.
+5. Skip `NULL` pointers.
+6. Connect consecutive surviving blocks through their `next` and `previous` links.
+7. Establish the new first and last elements.
+
+The resulting boundaries are:
+
+`first_element->previous = NULL`
+
+`last_element->next = NULL`
+
+A swap is already reflected in the order of pointers inside its pairvector entry.
+
+A merge is already reflected by the consumed pointer becoming `NULL`.
+
+No additional swap flag or reconstruction operation is required to determine the order inside a pair.
+
+The marker identifies a sequence position, not the original identity of a block. If the two pointers have been swapped, reconstruction uses the pointer occupying the marked position.
+
+The pairvector entry containing the first sequence element is identified directly, without searching the entire pairvector.
+
+### 10. Rotation
+
+The rotation cursor must refer to a live block node, not merely a saved numeric index.
+
+If a merge consumes the block referenced by `current_element`, the worker performing that merge redirects the pointer to the surviving destination block.
+
+Two rotation policies remain candidates for testing.
+
+**Policy A: Merge-aware rotation**
+
+- If at least one merge occurs during the phase, keep `current_element` on the same surviving block.
+- If no merge occurs, advance `current_element` by one active element in the reconstructed vectorlist.
+
+**Policy B: Always rotate**
+
+Advance `current_element` by one active element after every phase, regardless of whether merges occurred.
+
+These policies must be evaluated separately before choosing the final rule.
+
+### 11. Stopping conditions
+
+The original OrbitSort parity-dependent stopping rule is retained.
+
+The parity is determined by the current active element count.
+
+- Even active element count: stop after two consecutive phases without swaps.
+- Odd active element count: stop after three consecutive phases without swaps.
+
+The parity and corresponding threshold are recalculated using the current active element count after each phase.
+
+A merge alone does not count as a swap.
+
+Therefore:
+
+- Swap only: reset the consecutive no-swap counter.
+- Merge only: increment the consecutive no-swap counter.
+- Neither: increment the consecutive no-swap counter.
+- Swap and merge in the same phase: reset the consecutive no-swap counter.
+
+Sorting stops immediately when:
+
+`active_count <= 1`
+
+No additional phase is executed when only one active block remains.
+
+### 12. Phase-level swap flag
+
+A shared flag, `swap_occurred`, records whether at least one swap occurred during the phase.
+
+At the beginning of every phase:
+
+`swap_occurred = false`
+
+When a thread performs a swap:
+- If the flag is false, it sets it to true using an atomic operation.
+- If another thread sees that it is already true, it does nothing.
+
+The flag remains true until the phase ends.
+
+Only one successful swap is needed to establish that the phase contained swaps.
+
+Merges do not set this flag.
+
+### 13. Pairvector reuse
+
+The pairvector allocation is reused between phases.
+
+If no merge occurred:
+- The active block count remains unchanged.
+- The pairvector size remains unchanged.
+- Its entries are updated for the next phase.
+
+If one or more merges occurred:
+- The active block count decreases.
+- The pairvector's logical size is adjusted.
+- Its existing allocation is retained.
+
+The pairvector maintains its `size` as the logical end of its used entries.
+
+Its `capacity` represents the allocated space.
+
+Because the active block count can only decrease, the required pairvector capacity can never increase.
+
+No sentinel entry is required.
+
+### 14. Sequential and OpenMP implementations
+
+Both implementations must follow exactly the same algorithmic rules.
+
+The sequential implementation processes pairvector entries one after another.
+
+The OpenMP implementation assigns independent pairvector entries to worker threads.
+
+In both cases:
+- Each pair is processed using identical comparison and merge rules.
+- Each worker operates only on its own pairvector entry and its referenced blocks.
+- Workers do not modify the outer vectorlist links.
+- All worker operations must finish before reconstruction.
+- Reconstruction takes place outside the parallel phase.
+- The next phase starts only after reconstruction is complete.
+
+The `current_element` pointer may be updated by the worker consuming its block.
+
+The `first_element` pointer is updated during reconstruction.
+
+Shared data ownership and synchronization must be clearly defined.
+
+### 15. Memory management
+
+Every allocated node must have a clearly defined owner and lifetime.
+
+When a source block is absorbed:
+
+- Its integer nodes are transferred to the destination.
+- Its source blocklist becomes empty.
+- Its outer block node is consumed and excluded from reconstruction.
+- Transferred integer nodes must not be freed.
+
+Integer nodes are not allocated or copied during a merge.
+
+The pairvector allocation is reused between phases.
+
+All allocations must be checked for failure.
+
+All allocated memory must be released on both success and error paths.
+
+### 16. Testing and development
+
+The original OrbitSort tests remain regression tests.
+
+New tests must cover:
+- Singleton merges.
+- Overlapping blocks.
+- Disjoint blocks in both orders.
+- Duplicate values.
+- Different block sizes.
+- Equal-sized blocks.
+- Very small and very large `minDiff` values.
+- Odd and even active element counts.
+- Circular boundary comparisons.
+- Orphan positions.
+- Multiple merges in one phase.
+- Consumption of the block referenced by `current_element`.
+- Both rotation strategies.
+- Stopping-counter behaviour after merges.
+- Pairvector reconstruction after swaps and merges.
+- Sequential and OpenMP equivalence.
+- Memory allocation failures where practical.
+
+The implementation must proceed incrementally, one function at a time.
+
+Correctness must be established before optimization.
+
+No algorithmic rule may be changed without discussion and agreement.
