@@ -1,0 +1,59 @@
+Parallel minDiff calculation for OrbitSort
+Purpose
+
+Calculate the smallest absolute difference between any two elements of an integer vector. The result is supplied to OrbitSort with Dynamic Blocks as its minDiff parameter.
+1. Thread assignment
+For a vector containing \(n\) elements, create \(n\) threads.
+
+Each thread is assigned exactly one vector element:
+- Thread 0 handles vector[0].
+- Thread 1 handles vector[1].
+- ...
+- Thread n-1 handles vector[n-1].
+2. Comparisons
+Each thread compares its assigned element against every other element in the vector.
+
+To avoid duplicate comparisons, each thread only compares against elements with a higher index.
+
+For thread \(i\):
+\[
+d_i=\min_{j>i}|vector[i]-vector[j]|
+\]
+
+The thread maintains its own local minimum difference.
+3. Global minimum
+After all threads finish, determine the smallest of their local results:
+\[
+minDiff=\min(d_0,d_1,\ldots,d_{n-2})
+\]
+
+The last thread has no comparisons to perform.
+4. Example
+Input:
+
+[12, 3, 25, 8, 19]
+Thread assignments
+Thread	Element	Comparisons	Local minimum
+0	12	3, 25, 8, 19	4
+1	3	25, 8, 19	5
+2	25	8, 19	6
+3	8	19	11
+4	19	None	N/A
+
+
+Global minDiff
+4
+
+The closest pair is 12 and 8.
+
+5. Complexity
+- Total comparisons: \(n(n-1)/2\).
+- Each thread uses constant auxiliary storage for its local minimum.
+- Final reduction: \(O(n)\) sequentially, or parallel reduction if desired.
+- No sorting or rearrangement of the original vector is required.
+Points to discuss later
+1. Whether duplicate values should be ignored, meaning we seek the smallest strictly positive difference.
+2. How to handle the last thread, which has no comparisons.
+3. Whether the final reduction should also be parallel.
+4. Whether to use one thread per element literally or a bounded number of worker threads.
+This is the current description, not yet a finalized implementation specification.
