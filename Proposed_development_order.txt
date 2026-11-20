@@ -1,0 +1,29 @@
+Proposed development order
+1. Input validation and initialization
+Function	Responsibility
+validate_dynamic_sorting_parameters()	Validate pointers, element count, minDiff, and required output parameters.
+initialize_dynamic_sorting_state()	Initialize phase counters, rotation state, and stopping threshold.
+
+2. Basic block operations
+These are the building blocks of the algorithm.
+Function	Responsibility
+compare_blocks()	Examine two blocks and determine their relationship: overlapping ranges, disjoint ranges, or singleton comparison.
+swap_pairvector_blocks()	Exchange the two block pointers in a pairvector entry when the original compare-exchange rule requires a swap.
+merge_blocklists()	Merge the smaller blocklist into the larger one by relinking existing integer nodes.
+update_pairvector_after_merge()	Update pointers, markers and consumed-block references after a merge.
+
+3. Pair processing and reconstruction
+Function	Responsibility
+process_dynamic_pair()	Process one pair, applying the agreed comparison, swapping and merging rules.
+reconstruct_vectorlist()	Rebuild the outer doubly linked list from pairvector order, respecting markers and NULL entries.
+
+4. Phase management
+Function	Responsibility
+prepare_dynamic_phase()	Prepare the pairvector entries for one circular phase, including an orphan when necessary.
+run_sequential_dynamic_sorting()	Process pairs sequentially and manage phase completion, rotation and stopping.
+run_openmp_dynamic_sorting()	Process independent pairs in parallel, then reconstruct the vectorlist after workers finish.
+
+5. Coordination and reporting
+Function	Responsibility
+report_dynamic_sorting_result()	Report success or failure without changing the returned error code.
+run_dynamic_until_sorted()	Coordinate validation, initialization, execution and reporting.
